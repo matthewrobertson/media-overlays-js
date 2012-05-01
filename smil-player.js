@@ -1,13 +1,12 @@
-// mo-player.js
-// plays a media overlay file
-
-// main object
-MediaOverlaysPlayer = function() {
+// loads and plays a single SMIL document
+SmilFilePlayer = function() {
     var smiltree = null;
     var audioRenderer = new AudioRenderer();
-    var textRenderer = new TextRenderer();
     var smilUrl = null;
+    var notifySmilDoneCallback = null;
+    var notifyTextRenderCallback = null;
     
+    // TODO support playing from a file offeset, e.g. document.smil#frag
     this.playFile = function(url) {
         var self = this;
         smilUrl = url;
@@ -20,16 +19,18 @@ MediaOverlaysPlayer = function() {
         	}
         });
     };
-    // this is a simplistic way of hooking up the HTML display to the player
-    this.setHtmlBody = function(elm) {
-        textRenderer.setHtmlBody(elm);
-    };
     this.getSmilUrl = function() {
         return smilUrl;
     };
     this.getAudioPlayer = function() {
         return audioRenderer.getAudioPlayer();
     };
+    this.setNotifySmilDone = function(notifySmilDoneFn) {
+        notifySmilDoneCallback = notifySmilDoneFn;
+    };
+    this.setNotifyTextRender = function(notifyTextRenderFn) {
+        notifyTextRenderCallback = notifyTextRenderFn;
+    }
     function notifyDataLoaded (xml) {
         var model = new SmilModel();
         model.setUrl(smilUrl);
@@ -38,10 +39,11 @@ MediaOverlaysPlayer = function() {
         model.addRenderers({
             "audio": function() {
                     audioRenderer.render(this);
-                }, 
+            }, 
             "text": function(){
-                    textRenderer.render(this);
-                }
+                var src = $(this).attr("src");
+                notifyTextRenderCallback(src);
+            }
         });
         // start the playback tree at <body>
         smiltree = $(xml).find("body")[0]; 
@@ -51,59 +53,10 @@ MediaOverlaysPlayer = function() {
     
     // gets called when the smil tree is done playing
     function notifySmilDone() {
-        // TODO this is temporary
-        textRenderer.printStr("DONE");
+        notifySmilDoneCallback();
     }
 };
 
-// this doesn't do anything spectacular yet. it just prints the element's text on the screen.
-// eventually, it will hook into Readium's text display.
-TextRenderer = function() {
-    var textUrl = null;
-    var htmlBody = null;
-    var textDom = null;
-    var fragId = null;
-    
-    this.render = function(node) {
-        var src = $(node).attr("src");
-        fragId = MOUtils.getFragment(src);
-        if (!MOUtils.isSameDocument(textUrl, src)) {
-            textUrl = MOUtils.stripFragment(src);
-            loadTextDom(src);
-        }
-        else {
-            continueRender();
-        }
-    };
-    
-    this.setHtmlBody = function(elm) {
-        htmlBody = elm;
-    };
-    
-    function loadTextDom(src) {
-        $.ajax({
-            type: "GET",
-        	url: src,
-        	dataType: "xml",
-        	success: function(xml) {
-                notifyDataLoaded(xml);
-        	}
-        });
-    }
-    function notifyDataLoaded(xml) {
-        textDom = xml;
-        continueRender();
-    }
-    function continueRender() {
-        string = $(textDom).find("#" + fragId).text();
-        print(string);
-    }
-    function print(string) {
-        $(htmlBody).append($("<p>"+ string + "</p>"));
-    }
-    this.printStr = print;
-    
-};
 
 // sends audio nodes to an AudioClipPlayer
 AudioRenderer = function() {
@@ -132,6 +85,10 @@ SmilModel = function() {
     
     // these are playback logic functions for SMIL nodes
     // the context of each function is the node itself, as these functions will be attached to the nodes as members
+    // e.g. 
+    // parNode.render = parRender
+    // seqNode.render = seqRender
+    // etc
     NodeLogic = {
         
         parRender: function() {
@@ -169,7 +126,7 @@ SmilModel = function() {
         },
     
         // called when the clip has completed playback
-        audioNotifyMediaRenderDone: function() {
+        audioNotifyChildDone: function() {
             this.parentNode.notifyChildDone(this);
         },
     
@@ -211,10 +168,11 @@ SmilModel = function() {
                     "body": NodeLogic.seqRender};
                     
     // each node type has a notification function associated with it
+    // the notifiers get called when a child of the node has finished playback
     var notifiers = {"seq": NodeLogic.seqNotifyChildDone, 
                     "par": NodeLogic.parNotifyChildDone, 
                     "body": NodeLogic.seqNotifyChildDone,
-                    "audio": NodeLogic.audioNotifyMediaRenderDone,
+                    "audio": NodeLogic.audioNotifyChildDone,
                     "text": function() {}}
     var url = null;
     var notifySmilDone = null;
@@ -235,6 +193,7 @@ SmilModel = function() {
     }
         
     // main entry point
+    // recursively process a SMIL XML DOM
     this.processTree = function(node) {
         processNode(node);
         var self = this;
@@ -262,7 +221,7 @@ SmilModel = function() {
             node.render = renderers[node.tagName];
         }
         
-        // connect the notifiers
+        // connect the appropriate notifier
         if (notifiers.hasOwnProperty(node.tagName)) {
             node.notifyChildDone = notifiers[node.tagName];
         }
@@ -271,6 +230,8 @@ SmilModel = function() {
         
         // one bit of non-tagname-agnostic code in here
         if (node.tagName == "seq" || node.tagName == "body") {
+            // TODO consider getting rid of playbackIndex someday
+            // if we know the node that played most recently, we should be able to tell the node that plays next.
             node.playbackIndex = 0;
         }
     }
@@ -357,20 +318,29 @@ MOUtils = {
         // look for unit 's', 'h', 'min', 'ms'
         else {
             if (value.indexOf("min") != -1) {
-                mins = parseFloat(value.substr(0, indexOf("min")));
+                mins = parseFloat(value.substr(0, value.indexOf("min")));
             }
             else if (value.indexOf("ms") != -1) {
-                var ms = parseFloat(value.substr(0, indexOf("ms")));
+                var ms = parseFloat(value.substr(0, value.indexOf("ms")));
                 secs = ms/1000;
             }
             else if (value.indexOf("s") != -1) {
-                secs = parseFloat(value.substr(0, indexOf("s")));                
+                secs = parseFloat(value.substr(0, value.indexOf("s")));                
             }
             else if (value.indexOf("h") != -1) {
-                hours = parseFloat(value.substr(0, indexOf("h")));                
+                hours = parseFloat(value.substr(0, value.indexOf("h")));                
             }
         }
         var total = hours * 3600 + mins * 60 + secs;
         return total;
+    },
+    
+    // given a package document, find the SMIL file for the corresponding text reference
+    lookupSmil: function(textUrl, opfdom) {
+        var url = MOUtils.stripFragment(textUrl);
+        // TODO normalize url to accommodate absolute text urls (of course then we'll need to know the opf url, not just the dom)
+        var moId = $(opfdom).find("item[href='" +  url + "']").attr("media-overlay");
+        var smilItem = $(opfdom).find("item[id='" + moId + "']");
+        return smilItem.attr("href");
     }
 };
