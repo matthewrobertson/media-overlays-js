@@ -26,6 +26,9 @@
           window.moplayer = new MOPlayer();
           moplayer.url = SMIL;
           window.mo_highlighter = new MOHighligher({model: moplayer});
+          window.mo_player_view = new MOPlayerView({model: moplayer});
+          window.mo_player_view.render();
+          
           moplayer.fetch();
           
 
@@ -35,7 +38,10 @@
     </head>
     <body>
         <h1>Media Overlays Playback Simulation</h1>
-        <button id="playpause">Play/Pause</button>
+        <div id="readium-mo-player">
+            <button id="play-btn">Play</button>
+            <button id="pause-btn">Pause</button>
+        </div>
 
         <div id="readium-content-container">
            <section class="body-rw Chapter-rw" epub:type="bodymatter chapter">

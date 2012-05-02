@@ -21,3 +21,30 @@ MOHighligher = Backbone.View.extend({
 	}
 
 });
+
+
+MOPlayerView = Backbone.View.extend({
+
+	el: "#readium-mo-player",
+
+	initialize: function() {
+		this.model.on("change:playing", this.render, this);
+	},
+
+	render: function() {
+		var playing = this.model.get("playing");
+		this.$('#play-btn').toggle(!playing);
+		this.$('#pause-btn').toggle(playing);
+		return this;
+	},
+
+	events: {
+		"click #play-btn": function(e) {
+			this.model.play();
+		},
+
+		"click #pause-btn": function(e) {
+			this.model.pause();
+		},
+	}
+});
