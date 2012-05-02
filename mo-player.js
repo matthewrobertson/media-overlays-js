@@ -72,10 +72,11 @@ MOPlayer = Backbone.Model.extend({
         var smil = this.getCurrentSmil();
         this.set({ clip_url: smil.media_url });    
         this.set({ text_hash: smil.text_hash });
-        this.set({ section_url: smil.section_url });    
-        
+        this.set({ section_url: smil.section_url });         
     },
 
+    // check and see if our current smill node corresponds 
+    // to our current position the track
     updateSmil: function() {
         var smil = this.getCurrentSmil();
         var position = this.get("track_position");
